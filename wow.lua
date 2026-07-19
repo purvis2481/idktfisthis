@@ -73,6 +73,8 @@ _wsenv.WebSocket.connect = function(u)
     error("Failed to create WebSocket client: " .. last_error)
 end
 
+_wsenv.WebSocket.new = _wsenv.WebSocket.connect
+
 local http = {}
 http.request = request or http_request or syn_request
 
