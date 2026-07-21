@@ -197,566 +197,357 @@ getgenv().bit = bit32
     getgenv().syn_fireclickdetector = fireclickdetector
     getgenv().syn_getgc = getgc
 
-local DrawingCache = {}
-local DrawingObjects = {}
 
-local Fonts = {
-    [0] = Enum.Font.Arial,
-    [1] = Enum.Font.BuilderSans,
-    [2] = Enum.Font.Gotham,
-    [3] = Enum.Font.RobotoMono
-}
-
-local function gethui()
-    local success, result = pcall(function()
-        return game:GetService("CoreGui")
-    end)
-    return success and result or game:GetService("Players").LocalPlayer:FindFirstChildOfClass("PlayerGui")
-end
-getgenv().gethui = gethui
-
-local UI = Instance.new("ScreenGui")
-UI.Name = "DrawingLib"
-UI.DisplayOrder = 999999
-UI.IgnoreGuiInset = true
-UI.ResetOnSpawn = false
-UI.Parent = gethui()
-
-local Drawing = {
-    Fonts = {
-        UI = 0,
-        System = 1,
-        Plex = 2,
-        Monospace = 3
-    }
-}
-
-Drawing.new = function(drawingType)
-    if type(drawingType) ~= "string" then
-        error("Drawing.new: argument must be a string, got " .. type(drawingType), 2)
-    end
-
-    local validTypes = {
-        Line = true,
-        Square = true,
-        Rectangle = true,
-        Circle = true,
-        Text = true,
-        Image = true,
-        Triangle = true,
-        Quad = true
-    }
-    
-    if not validTypes[drawingType] then
-        error("Drawing.new: invalid drawing type '" .. drawingType .. "'", 2)
-    end
-
-    local drawingObj = Instance.new("Frame")
-    drawingObj.BackgroundTransparency = 1
-    drawingObj.BorderSizePixel = 0
-    drawingObj.Size = UDim2.fromOffset(0, 0)
-    drawingObj.Position = UDim2.fromOffset(0, 0)
-    drawingObj.Parent = UI
-    
-    local properties = {
-        Visible = true,
-        Color = Color3.new(1, 1, 1),
-        Transparency = 1,
-        ZIndex = 1
-    }
-    
-    local self = newproxy(true)
-    local mt = getmetatable(self)
-    
-    local removed = false
-    
-    mt.__index = function(_, key)
-        if key == "__OBJECT_EXISTS" then
-            return not removed
-        end
-        return properties[key]
-    end
-    
-    mt.__newindex = function(_, key, value)
-        if removed then return end
-        
-        if key == "__OBJECT_EXISTS" then
-            return
-        end
-        
-        properties[key] = value
-        
-        if key == "Visible" then
-            drawingObj.Visible = value
-        elseif key == "Color" then
-            drawingObj.BackgroundColor3 = value
-        elseif key == "Transparency" then
-            drawingObj.BackgroundTransparency = 1 - value
-        elseif key == "ZIndex" then
-            drawingObj.ZIndex = value
-        end
-    end
-    
-    mt.__tostring = function()
-        return "Drawing"
-    end
-    
-    mt.__metatable = "The metatable is locked"
-    
-    properties.Remove = function()
-        if removed then return end
-        
-        removed = true
-        
-        if drawingObj and drawingObj.Parent then
-            drawingObj:Destroy()
-        end
-        
-        for i, obj in ipairs(DrawingCache) do
-            if obj.proxy == self then
-                table.remove(DrawingCache, i)
-                break
-            end
-        end
-        
-        DrawingObjects[self] = nil
-    end
-    
-    properties.Destroy = properties.Remove
-    
-    table.insert(DrawingCache, {proxy = self, instance = drawingObj})
-    DrawingObjects[self] = true
-    
-    if drawingType == "Line" then
-        drawingObj.AnchorPoint = Vector2.new(0.5, 0.5)
-        
-        properties.From = Vector2.zero
-        properties.To = Vector2.zero
-        properties.Thickness = 1
-        
-        local updateLine = function()
-            if removed then return end
-            
-            local from = properties.From
-            local to = properties.To
-            local dx = to.X - from.X
-            local dy = to.Y - from.Y
-            local length = math.sqrt(dx * dx + dy * dy)
-            
-            drawingObj.Size = UDim2.fromOffset(length, properties.Thickness)
-            drawingObj.Position = UDim2.fromOffset((from.X + to.X) / 2, (from.Y + to.Y) / 2)
-            drawingObj.Rotation = math.deg(math.atan2(dy, dx))
-            drawingObj.BackgroundTransparency = 1 - properties.Transparency
-            drawingObj.BackgroundColor3 = properties.Color
-        end
-        
-        local oldNewindex = mt.__newindex
-        mt.__newindex = function(t, k, v)
-            oldNewindex(t, k, v)
-            if k == "From" or k == "To" or k == "Thickness" then
-                updateLine()
-            end
-        end
-        
-    elseif drawingType == "Square" or drawingType == "Rectangle" then
-        local stroke = Instance.new("UIStroke")
-        stroke.Parent = drawingObj
-        stroke.Thickness = 1
-        stroke.Color = Color3.new(1, 1, 1)
-        
-        properties.Size = Vector2.zero
-        properties.Position = Vector2.zero
-        properties.Filled = false
-        properties.Thickness = 1
-        
-        local updateSquare = function()
-            if removed then return end
-            
-            drawingObj.Size = UDim2.fromOffset(properties.Size.X, properties.Size.Y)
-            drawingObj.Position = UDim2.fromOffset(properties.Position.X, properties.Position.Y)
-            
-            if properties.Filled then
-                drawingObj.BackgroundTransparency = 1 - properties.Transparency
-                drawingObj.BackgroundColor3 = properties.Color
-                stroke.Enabled = false
-            else
-                drawingObj.BackgroundTransparency = 1
-                stroke.Enabled = true
-                stroke.Color = properties.Color
-                stroke.Thickness = properties.Thickness
-                stroke.Transparency = 1 - properties.Transparency
-            end
-        end
-        
-        local oldNewindex = mt.__newindex
-        mt.__newindex = function(t, k, v)
-            oldNewindex(t, k, v)
-            if k == "Size" or k == "Position" or k == "Filled" or k == "Thickness" or k == "Color" or k == "Transparency" then
-                updateSquare()
-            end
-        end
-        
-    elseif drawingType == "Circle" then
-        local stroke = Instance.new("UIStroke")
-        stroke.Parent = drawingObj
-        stroke.Thickness = 1
-        
-        local corner = Instance.new("UICorner")
-        corner.CornerRadius = UDim.new(1, 0)
-        corner.Parent = drawingObj
-        
-        properties.Radius = 50
-        properties.Position = Vector2.zero
-        properties.Filled = false
-        properties.Thickness = 1
-        properties.NumSides = 64
-        
-        local updateCircle = function()
-            if removed then return end
-            
-            local diameter = properties.Radius * 2
-            drawingObj.Size = UDim2.fromOffset(diameter, diameter)
-            drawingObj.Position = UDim2.fromOffset(properties.Position.X - properties.Radius, properties.Position.Y - properties.Radius)
-            
-            if properties.Filled then
-                drawingObj.BackgroundTransparency = 1 - properties.Transparency
-                drawingObj.BackgroundColor3 = properties.Color
-                stroke.Enabled = false
-            else
-                drawingObj.BackgroundTransparency = 1
-                stroke.Enabled = true
-                stroke.Color = properties.Color
-                stroke.Thickness = properties.Thickness
-                stroke.Transparency = 1 - properties.Transparency
-            end
-        end
-        
-        local oldNewindex = mt.__newindex
-        mt.__newindex = function(t, k, v)
-            oldNewindex(t, k, v)
-            if k == "Radius" or k == "Position" or k == "Filled" or k == "Thickness" or k == "Color" or k == "Transparency" then
-                updateCircle()
-            end
-        end
-        
-    elseif drawingType == "Triangle" then
-        drawingObj:Destroy()
-        
-        drawingObj = Instance.new("Frame")
-        drawingObj.BackgroundTransparency = 1
-        drawingObj.BorderSizePixel = 0
-        drawingObj.Size = UDim2.fromOffset(100, 100)
-        drawingObj.Parent = UI
-        
-        local point1Frame = Instance.new("Frame")
-        point1Frame.AnchorPoint = Vector2.new(0.5, 0.5)
-        point1Frame.BackgroundColor3 = Color3.new(1, 1, 1)
-        point1Frame.BorderSizePixel = 0
-        point1Frame.Parent = drawingObj
-        
-        local point2Frame = Instance.new("Frame")
-        point2Frame.AnchorPoint = Vector2.new(0.5, 0.5)
-        point2Frame.BackgroundColor3 = Color3.new(1, 1, 1)
-        point2Frame.BorderSizePixel = 0
-        point2Frame.Parent = drawingObj
-        
-        local point3Frame = Instance.new("Frame")
-        point3Frame.AnchorPoint = Vector2.new(0.5, 0.5)
-        point3Frame.BackgroundColor3 = Color3.new(1, 1, 1)
-        point3Frame.BorderSizePixel = 0
-        point3Frame.Parent = drawingObj
-        
-        properties.PointA = Vector2.zero
-        properties.PointB = Vector2.new(50, 100)
-        properties.PointC = Vector2.new(100, 0)
-        properties.Filled = false
-        properties.Thickness = 1
-        
-        local updateTriangle = function()
-            if removed then return end
-            
-            local pA = properties.PointA
-            local pB = properties.PointB
-            local pC = properties.PointC
-            
-            local minX = math.min(pA.X, pB.X, pC.X)
-            local minY = math.min(pA.Y, pB.Y, pC.Y)
-            local maxX = math.max(pA.X, pB.X, pC.X)
-            local maxY = math.max(pA.Y, pB.Y, pC.Y)
-            
-            drawingObj.Position = UDim2.fromOffset(minX, minY)
-            drawingObj.Size = UDim2.fromOffset(maxX - minX, maxY - minY)
-            
-            local function drawLine(frame, p1, p2)
-                local dx = p2.X - p1.X
-                local dy = p2.Y - p1.Y
-                local length = math.sqrt(dx * dx + dy * dy)
-                
-                frame.Size = UDim2.fromOffset(length, properties.Thickness)
-                frame.Position = UDim2.fromOffset((p1.X + p2.X) / 2 - minX, (p1.Y + p2.Y) / 2 - minY)
-                frame.Rotation = math.deg(math.atan2(dy, dx))
-                frame.BackgroundColor3 = properties.Color
-                frame.BackgroundTransparency = 1 - properties.Transparency
-            end
-            
-            if properties.Filled then
-                point1Frame.Visible = false
-                point2Frame.Visible = false
-                point3Frame.Visible = false
-                drawingObj.BackgroundColor3 = properties.Color
-                drawingObj.BackgroundTransparency = 1 - properties.Transparency
-            else
-                point1Frame.Visible = true
-                point2Frame.Visible = true
-                point3Frame.Visible = true
-                drawingObj.BackgroundTransparency = 1
-                
-                drawLine(point1Frame, pA, pB)
-                drawLine(point2Frame, pB, pC)
-                drawLine(point3Frame, pC, pA)
-            end
-        end
-        
-        local oldNewindex = mt.__newindex
-        mt.__newindex = function(t, k, v)
-            oldNewindex(t, k, v)
-            if k == "PointA" or k == "PointB" or k == "PointC" or k == "Filled" or k == "Thickness" or k == "Color" or k == "Transparency" then
-                updateTriangle()
-            end
-        end
-        
-    elseif drawingType == "Quad" then
-        drawingObj:Destroy()
-        
-        drawingObj = Instance.new("Frame")
-        drawingObj.BackgroundTransparency = 1
-        drawingObj.BorderSizePixel = 0
-        drawingObj.Size = UDim2.fromOffset(100, 100)
-        drawingObj.Parent = UI
-        
-        local line1 = Instance.new("Frame")
-        line1.AnchorPoint = Vector2.new(0.5, 0.5)
-        line1.BackgroundColor3 = Color3.new(1, 1, 1)
-        line1.BorderSizePixel = 0
-        line1.Parent = drawingObj
-        
-        local line2 = Instance.new("Frame")
-        line2.AnchorPoint = Vector2.new(0.5, 0.5)
-        line2.BackgroundColor3 = Color3.new(1, 1, 1)
-        line2.BorderSizePixel = 0
-        line2.Parent = drawingObj
-        
-        local line3 = Instance.new("Frame")
-        line3.AnchorPoint = Vector2.new(0.5, 0.5)
-        line3.BackgroundColor3 = Color3.new(1, 1, 1)
-        line3.BorderSizePixel = 0
-        line3.Parent = drawingObj
-        
-        local line4 = Instance.new("Frame")
-        line4.AnchorPoint = Vector2.new(0.5, 0.5)
-        line4.BackgroundColor3 = Color3.new(1, 1, 1)
-        line4.BorderSizePixel = 0
-        line4.Parent = drawingObj
-        
-        properties.PointA = Vector2.zero
-        properties.PointB = Vector2.new(100, 0)
-        properties.PointC = Vector2.new(100, 100)
-        properties.PointD = Vector2.new(0, 100)
-        properties.Filled = false
-        properties.Thickness = 1
-        
-        local updateQuad = function()
-            if removed then return end
-            
-            local pA = properties.PointA
-            local pB = properties.PointB
-            local pC = properties.PointC
-            local pD = properties.PointD
-            
-            local minX = math.min(pA.X, pB.X, pC.X, pD.X)
-            local minY = math.min(pA.Y, pB.Y, pC.Y, pD.Y)
-            local maxX = math.max(pA.X, pB.X, pC.X, pD.X)
-            local maxY = math.max(pA.Y, pB.Y, pC.Y, pD.Y)
-            
-            drawingObj.Position = UDim2.fromOffset(minX, minY)
-            drawingObj.Size = UDim2.fromOffset(maxX - minX, maxY - minY)
-            
-            local function drawLine(frame, p1, p2)
-                local dx = p2.X - p1.X
-                local dy = p2.Y - p1.Y
-                local length = math.sqrt(dx * dx + dy * dy)
-                
-                frame.Size = UDim2.fromOffset(length, properties.Thickness)
-                frame.Position = UDim2.fromOffset((p1.X + p2.X) / 2 - minX, (p1.Y + p2.Y) / 2 - minY)
-                frame.Rotation = math.deg(math.atan2(dy, dx))
-                frame.BackgroundColor3 = properties.Color
-                frame.BackgroundTransparency = 1 - properties.Transparency
-            end
-            
-            if properties.Filled then
-                line1.Visible = false
-                line2.Visible = false
-                line3.Visible = false
-                line4.Visible = false
-                drawingObj.BackgroundColor3 = properties.Color
-                drawingObj.BackgroundTransparency = 1 - properties.Transparency
-            else
-                line1.Visible = true
-                line2.Visible = true
-                line3.Visible = true
-                line4.Visible = true
-                drawingObj.BackgroundTransparency = 1
-                
-                drawLine(line1, pA, pB)
-                drawLine(line2, pB, pC)
-                drawLine(line3, pC, pD)
-                drawLine(line4, pD, pA)
-            end
-        end
-        
-        local oldNewindex = mt.__newindex
-        mt.__newindex = function(t, k, v)
-            oldNewindex(t, k, v)
-            if k == "PointA" or k == "PointB" or k == "PointC" or k == "PointD" or k == "Filled" or k == "Thickness" or k == "Color" or k == "Transparency" then
-                updateQuad()
-            end
-        end
-        
-    elseif drawingType == "Text" then
-        drawingObj:Destroy()
-        
-        drawingObj = Instance.new("TextLabel")
-        drawingObj.BackgroundTransparency = 1
-        drawingObj.BorderSizePixel = 0
-        drawingObj.TextColor3 = Color3.new(1, 1, 1)
-        drawingObj.TextSize = 13
-        drawingObj.Font = Enum.Font.Code
-        drawingObj.Text = ""
-        drawingObj.AutomaticSize = Enum.AutomaticSize.XY
-        drawingObj.Parent = UI
-        
-        properties.Text = ""
-        properties.Size = 13
-        properties.Center = false
-        properties.Outline = false
-        properties.OutlineColor = Color3.new(0, 0, 0)
-        properties.Position = Vector2.zero
-        properties.Font = 2
-        properties.TextBounds = Vector2.zero
-        
-        local updateText = function()
-            if removed then return end
-            
-            drawingObj.Text = tostring(properties.Text)
-            drawingObj.TextSize = properties.Size
-            drawingObj.Position = UDim2.fromOffset(properties.Position.X, properties.Position.Y)
-            drawingObj.TextColor3 = properties.Color
-            drawingObj.TextTransparency = 1 - properties.Transparency
-            drawingObj.Font = Fonts[properties.Font] or Enum.Font.Code
-            
-            if properties.Center then
-                drawingObj.TextXAlignment = Enum.TextXAlignment.Center
-                drawingObj.TextYAlignment = Enum.TextYAlignment.Center
-            else
-                drawingObj.TextXAlignment = Enum.TextXAlignment.Left
-                drawingObj.TextYAlignment = Enum.TextYAlignment.Top
-            end
-            
-            if properties.Outline then
-                drawingObj.TextStrokeTransparency = 0
-                drawingObj.TextStrokeColor3 = properties.OutlineColor
-            else
-                drawingObj.TextStrokeTransparency = 1
-            end
-            
-            game:GetService("RunService").RenderStepped:Wait()
-            properties.TextBounds = drawingObj.TextBounds
-        end
-        
-        local oldNewindex = mt.__newindex
-        mt.__newindex = function(t, k, v)
-            oldNewindex(t, k, v)
-            if k ~= "TextBounds" then
-                task.spawn(updateText)
-            end
-        end
-        
-    elseif drawingType == "Image" then
-        drawingObj:Destroy()
-        
-        drawingObj = Instance.new("ImageLabel")
-        drawingObj.BackgroundTransparency = 1
-        drawingObj.BorderSizePixel = 0
-        drawingObj.Parent = UI
-        
-        properties.Data = ""
-        properties.Size = Vector2.zero
-        properties.Position = Vector2.zero
-        properties.Rounding = 0
-        
-        local updateImage = function()
-            if removed then return end
-            
-            drawingObj.Image = properties.Data
-            drawingObj.Size = UDim2.fromOffset(properties.Size.X, properties.Size.Y)
-            drawingObj.Position = UDim2.fromOffset(properties.Position.X, properties.Position.Y)
-            drawingObj.ImageTransparency = 1 - properties.Transparency
-            drawingObj.ImageColor3 = properties.Color
-        end
-        
-        local oldNewindex = mt.__newindex
-        mt.__newindex = function(t, k, v)
-            oldNewindex(t, k, v)
-            if k == "Data" or k == "Size" or k == "Position" or k == "Transparency" or k == "Color" then
-                updateImage()
-            end
-        end
-    end
-    
-    return self
-end
-
-getgenv().Drawing = Drawing
-
-getgenv().isrenderobj = function(obj)
-    if type(obj) ~= "userdata" then
-        return false
-    end
-    
-    local success, exists = pcall(function()
-        return obj.__OBJECT_EXISTS
-    end)
-    
-    return success and exists == true
-end
-
-getgenv().cleardrawcache = function()
-    for i = #DrawingCache, 1, -1 do
-        local data = DrawingCache[i]
-        if data and data.proxy then
-            pcall(function()
-                data.proxy:Remove()
-            end)
-        end
-    end
-    
-    DrawingCache = {}
-    DrawingObjects = {}
-end
-
-getgenv().getrenderproperty = function(obj, prop)
-    if not getgenv().isrenderobj(obj) then
-        return nil
-    end
-    return obj[prop]
-end
-
-getgenv().setrenderproperty = function(obj, prop, value)
-    if not getgenv().isrenderobj(obj) then
-        return
-    end
-    obj[prop] = value
-end
+  local env = getgenv()
+  local coreGui = game:GetService("CoreGui")
+  local camera = workspace.CurrentCamera
+  
+  local old = coreGui:FindFirstChild("ArquesDrawingUD")
+  if old then old:Destroy() end
+  
+  local drawingUI = Instance.new("ScreenGui")
+  drawingUI.Name = "ArquesDrawingUD"
+  drawingUI.IgnoreGuiInset = true
+  drawingUI.DisplayOrder = 0x7fffffff
+  drawingUI.ResetOnSpawn = false
+  drawingUI.Parent = coreGui
+  
+  local fonts = {
+      [0] = Font.fromEnum(Enum.Font.Roboto),
+      [1] = Font.fromEnum(Enum.Font.Legacy),
+      [2] = Font.fromEnum(Enum.Font.SourceSans),
+      [3] = Font.fromEnum(Enum.Font.RobotoMono),
+  }
+  
+  local Drawing = {
+      Fonts = {
+          UI = 0,
+          System = 1,
+          Plex = 2,
+          Monospace = 3,
+      },
+  }
+  
+  local objects = setmetatable({}, { __mode = "k" })
+  local nextId = 0
+  
+  local defaults = {
+      Line = {
+          From = Vector2.zero,
+          To = Vector2.zero,
+          Thickness = 1,
+      },
+      Text = {
+          Text = "",
+          TextBounds = Vector2.zero,
+          Font = 0,
+          Size = 13,
+          Position = Vector2.zero,
+          Center = false,
+          Outline = false,
+          OutlineColor = Color3.new(),
+      },
+      Image = {
+          Data = "",
+          DataURL = "",
+          Size = Vector2.zero,
+          Position = Vector2.zero,
+      },
+      Circle = {
+          NumSides = 0,
+          Radius = 0,
+          Position = Vector2.zero,
+          Thickness = 1,
+          Filled = false,
+      },
+      Square = {
+          Size = Vector2.zero,
+          Position = Vector2.zero,
+          Thickness = 1,
+          Filled = false,
+      },
+      Quad = {
+          PointA = Vector2.zero,
+          PointB = Vector2.zero,
+          PointC = Vector2.zero,
+          PointD = Vector2.zero,
+          Thickness = 1,
+          Filled = false,
+      },
+      Triangle = {
+          PointA = Vector2.zero,
+          PointB = Vector2.zero,
+          PointC = Vector2.zero,
+          Thickness = 1,
+          Filled = false,
+      },
+      Frame = {
+          Size = UDim2.fromOffset(100, 100),
+          Position = UDim2.fromOffset(0, 0),
+      },
+      ScreenGui = {
+          IgnoreGuiInset = true,
+          DisplayOrder = 0,
+          ResetOnSpawn = false,
+          ZIndexBehavior = Enum.ZIndexBehavior.Sibling,
+          Enabled = true,
+      },
+      TextButton = {
+          Text = "Button",
+          Font = 0,
+          Size = 20,
+          Position = UDim2.fromOffset(0, 0),
+          BackgroundColor = Color3.fromRGB(51, 51, 51),
+          MouseButton1Click = false,
+      },
+      TextLabel = {
+          Text = "Label",
+          Font = 0,
+          Size = 20,
+          Position = UDim2.fromOffset(0, 0),
+          BackgroundColor = Color3.fromRGB(51, 51, 51),
+      },
+      TextBox = {
+          Text = "",
+          Font = 0,
+          Size = 20,
+          Position = UDim2.fromOffset(0, 0),
+          BackgroundColor = Color3.fromRGB(51, 51, 51),
+      },
+  }
+  
+  local function copyDefaults(kind)
+      local state = {
+          Visible = false,
+          ZIndex = 0,
+          Transparency = 1,
+          Color = Color3.new(),
+          __OBJECT_EXISTS = true,
+          Parent = drawingUI,
+      }
+      for key, value in pairs(defaults[kind]) do
+          state[key] = value
+      end
+      return state
+  end
+  
+  local function alpha(value)
+      return math.clamp(value, 0, 1)
+  end
+  
+  local function makeGui(kind)
+      if kind == "Line" then
+       
+        local gui = Instance.new("ImageLabel")
+          gui.Image = ""
+          gui.BorderSizePixel = 0
+          gui.AnchorPoint = Vector2.new(0.5, 0.5)
+          return gui
+      elseif kind == "Text" or kind == "TextLabel" then
+          local gui = Instance.new("TextLabel")
+          gui.BackgroundTransparency = 1
+          gui.BorderSizePixel = 0
+          return gui
+      elseif kind == "TextButton" then
+          local gui = Instance.new("TextButton")
+          gui.BorderSizePixel = 0
+          return gui
+      elseif kind == "TextBox" then
+          local gui = Instance.new("TextBox")
+          gui.BorderSizePixel = 0
+          return gui
+      elseif kind == "Image" then
+          local gui = Instance.new("ImageLabel")
+          gui.BackgroundTransparency = 1
+          gui.BorderSizePixel = 0
+          return gui
+      elseif kind == "ScreenGui" then
+          return Instance.new("ScreenGui")
+      end
+  
+      local gui = Instance.new("Frame")
+      gui.BorderSizePixel = 0
+      if kind == "Circle" then
+          local corner = Instance.new("UICorner")
+          corner.CornerRadius = UDim.new(1, 0)
+          corner.Parent = gui
+      end
+      return gui
+  end
+  
+  local function updateLine(gui, state)
+      local delta = state.To - state.From
+      local center = (state.To + state.From) / 2
+      gui.Position = UDim2.fromOffset(center.X, center.Y)
+      gui.Size = UDim2.fromOffset(delta.Magnitude, state.Thickness)
+      gui.Rotation = math.deg(math.atan2(delta.Y, delta.X))
+  end
+  
+  local function updateGui(kind, gui, state, property)
+      if not gui or not gui.Parent and state.__OBJECT_EXISTS == false then return end
+  
+      if property == nil or property == "Visible" then
+          if gui:IsA("GuiObject") then gui.Visible = state.Visible end
+      end
+      if property == nil or property == "ZIndex" then
+          if gui:IsA("GuiObject") then gui.ZIndex = state.ZIndex end
+      end
+      if property == nil or property == "Parent" then
+          gui.Parent = state.Parent
+      end
+  
+      if kind == "Line" then
+          if property == nil or property == "From" or property == "To" or property == "Thickness" then
+              updateLine(gui, state)
+          end
+          if property == nil or property == "Color" then gui.BackgroundColor3 = state.Color end
+          if property == nil or property == "Transparency" then gui.BackgroundTransparency = alpha(state.Transparency) end
+      elseif kind == "Text" then
+          if property == nil or property == "Text" then gui.Text = state.Text end
+          if property == nil or property == "Font" then gui.FontFace = fonts[math.clamp(state.Font, 0, 3)] end
+          if property == nil or property == "Size" then gui.TextSize = state.Size end
+          if property == nil or property == "Position" or property == "Center" then
+              local position = state.Center and camera.ViewportSize / 2 or state.Position
+              gui.Position = UDim2.fromOffset(position.X, position.Y)
+          end
+          if property == nil or property == "Color" then gui.TextColor3 = state.Color end
+          if property == nil or property == "Transparency" then gui.TextTransparency = alpha(state.Transparency) end
+          state.TextBounds = gui.TextBounds
+      elseif kind == "Image" then
+          if property == nil or property == "DataURL" then gui.Image = state.DataURL end
+          if property == nil or property == "Size" then gui.Size = UDim2.fromOffset(state.Size.X, state.Size.Y) end
+          if property == nil or property == "Position" then gui.Position = UDim2.fromOffset(state.Position.X, state.Position.Y) end
+          if property == nil or property == "Color" then gui.ImageColor3 = state.Color end
+          if property == nil or property == "Transparency" then gui.ImageTransparency = alpha(state.Transparency) end
+      elseif kind == "Circle" then
+          if property == nil or property == "Radius" then
+              gui.Size = UDim2.fromOffset(state.Radius * 2, state.Radius * 2)
+          end
+          if property == nil or property == "Position" then gui.Position = UDim2.fromOffset(state.Position.X, state.Position.Y) end
+          if property == nil or property == "Color" then gui.BackgroundColor3 = state.Color end
+          if property == nil or property == "Transparency" or property == "Filled" then
+              gui.BackgroundTransparency = state.Filled and alpha(state.Transparency) or 1
+          end
+      elseif kind == "Square" then
+          if property == nil or property == "Size" then gui.Size = UDim2.fromOffset(state.Size.X, state.Size.Y) end
+          if property == nil or property == "Position" then gui.Position = UDim2.fromOffset(state.Position.X, state.Position.Y) end
+          if property == nil or property == "Color" then gui.BackgroundColor3 = state.Color end
+          if property == nil or property == "Transparency" or property == "Filled" then
+              gui.BackgroundTransparency = state.Filled and alpha(state.Transparency) or 1
+          end
+      elseif kind == "Frame" then
+          gui.Size = state.Size
+          gui.Position = state.Position
+          gui.BackgroundColor3 = state.Color
+          gui.BackgroundTransparency = alpha(state.Transparency)
+      elseif kind == "ScreenGui" then
+          gui.IgnoreGuiInset = state.IgnoreGuiInset
+          gui.DisplayOrder = state.DisplayOrder
+          gui.ResetOnSpawn = state.ResetOnSpawn
+          gui.ZIndexBehavior = state.ZIndexBehavior
+          gui.Enabled = state.Enabled
+      elseif kind == "TextButton" or kind == "TextLabel" or kind == "TextBox" then
+          gui.Text = state.Text
+          gui.FontFace = fonts[math.clamp(state.Font, 0, 3)]
+          gui.TextSize = state.Size
+          gui.Position = state.Position
+          gui.TextColor3 = state.Color
+          gui.BackgroundColor3 = state.BackgroundColor
+          gui.BackgroundTransparency = alpha(state.Transparency)
+      else
+          gui.BackgroundColor3 = state.Color
+          gui.BackgroundTransparency = alpha(state.Transparency)
+      end
+  end
+  
+  local function create(kind)
+      if defaults[kind] == nil then
+          error("Invalid drawing type: " .. tostring(kind), 2)
+      end
+  
+      nextId += 1
+      local state = copyDefaults(kind)
+      local gui = makeGui(kind)
+      gui.Name = tostring(nextId)
+      if kind == "ScreenGui" then
+          state.Parent = coreGui
+          gui.Parent = coreGui
+      else
+          gui.Parent = drawingUI
+      end
+  
+      local proxy
+      local function destroy()
+          if not state.__OBJECT_EXISTS then return end
+          state.__OBJECT_EXISTS = false
+          objects[proxy] = nil
+          gui:Destroy()
+      end
+  
+      state.Destroy = destroy
+      state.Remove = destroy
+      state.SetProperty = function(_, key, value) proxy[key] = value end
+      state.GetProperty = function(_, key) return proxy[key] end
+      state.SetParent = function(_, parent) proxy.Parent = parent end
+  
+      proxy = newproxy(true)
+      local mt = getmetatable(proxy)
+      mt.__index = function(_, key)
+          return state[key]
+      end
+      mt.__newindex = function(_, key, value)
+          local known = state[key] ~= nil
+          state[key] = value
+          if known then
+              updateGui(kind, gui, state, key)
+          end
+      end
+      mt.__tostring = function()
+          return "Drawing"
+      end
+      mt.__metatable = "The metatable is locked"
+  
+      objects[proxy] = true
+      updateGui(kind, gui, state, nil)
+      return proxy
+  end
+  
+  Drawing.new = create
+  Drawing.createLine = function() return create("Line") end
+  Drawing.createText = function() return create("Text") end
+  Drawing.createCircle = function() return create("Circle") end
+  Drawing.createSquare = function() return create("Square") end
+  Drawing.createImage = function() return create("Image") end
+  Drawing.createQuad = function() return create("Quad") end
+  Drawing.createTriangle = function() return create("Triangle") end
+  Drawing.createFrame = function() return create("Frame") end
+  Drawing.createScreenGui = function() return create("ScreenGui") end
+  Drawing.createTextButton = function() return create("TextButton") end
+  Drawing.createTextLabel = function() return create("TextLabel") end
+  Drawing.createTextBox = function() return create("TextBox") end
+  
+  env.Drawing = Drawing
+  env.isrenderobj = function(object)
+      if type(object) ~= "userdata" or objects[object] ~= true then
+          return false
+      end
+      local ok, exists = pcall(function()
+          return object.__OBJECT_EXISTS
+      end)
+      return ok and exists == true
+  end
+  env.getrenderproperty = function(object, property)
+      return object[property]
+  end
+  env.setrenderproperty = function(object, property, value)
+      object[property] = value
+  end
+  env.cleardrawcache = function()
+      local pending = {}
+      for object in pairs(objects) do pending[#pending + 1] = object end
+      for _, object in ipairs(pending) do object:Destroy() end
+  end
+  
 
 local TweenService = game:GetService("TweenService")
 local UserInputService = game:GetService("UserInputService")
