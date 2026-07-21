@@ -1,3 +1,5 @@
+--!nocheck
+--!nolint
 
 if not game:IsLoaded() then
     game.Loaded:Wait()
@@ -18,41 +20,51 @@ end
 local Signal = {}
 Signal.__index = Signal
 
-function Signal.new()
-    local self = setmetatable({}, Signal)
-    self._connections = {}
+function Signal.new(existingBindable)
+    local self = setmetatable({
+        _bindable = existingBindable or Instance.new("BindableEvent"),
+        _listeners = {},
+    }, Signal)
     return self
 end
 
-function Signal:Connect(callback)
-    local connection = {
-        Connected = true,
-        Callback = callback,
-        Disconnect = function(self)
-            self.Connected = false
-        end
-    }
-    table.insert(self._connections, connection)
-    return connection
-end
-
 function Signal:Fire(...)
-    for _, connection in ipairs(self._connections) do
-        if connection.Connected then
-            task.spawn(connection.Callback, ...)
-        end
+    for _, listener in ipairs(self._listeners) do
+        listener(...)
     end
+    self._bindable:Fire(...)
 end
 
-function Signal:Wait()
-    local thread = coroutine.running()
+function Signal:Connect(callback)
+    table.insert(self._listeners, callback)
+    local connection = self._bindable.Event:Connect(function(...) end)
+    return {
+        Disconnect = function()
+            for i, cb in ipairs(self._listeners) do
+                if cb == callback then
+                    table.remove(self._listeners, i)
+                    break
+                end
+            end
+            connection:Disconnect()
+        end,
+    }
+end
+
+function Signal:Once(callback)
     local connection
     connection = self:Connect(function(...)
         connection:Disconnect()
-        task.spawn(thread, ...)
+        callback(...)
     end)
-    return coroutine.yield()
+    return connection
 end
+
+function Signal:Wait()
+    return self._bindable.Event:Wait()
+end
+
+getgenv().Signal = Signal
 
 local bit32 = bit32 or bit or {}
 
