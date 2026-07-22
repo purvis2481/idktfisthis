@@ -167,7 +167,7 @@ if not bit32.replace then
     end
 end
 
-getgenv().bit = bit32
+getgenv().bit32 = bit32
 
  setreadonly(getgenv().debug,false)
     getgenv().debug.traceback = getrenv().debug.traceback
