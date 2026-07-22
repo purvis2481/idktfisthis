@@ -8,15 +8,6 @@ end
 local Players = game:GetService("Players")
 local LocalPlayer = Players.LocalPlayer
 
-while not LocalPlayer do
-    task.wait()
-    LocalPlayer = Players.LocalPlayer
-end
-
-while not LocalPlayer.Character do
-    LocalPlayer.CharacterAdded:Wait()
-end
-
 local Signal = {}
 Signal.__index = Signal
 
